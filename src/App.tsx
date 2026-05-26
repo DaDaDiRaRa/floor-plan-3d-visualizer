@@ -49,6 +49,9 @@ export default function App() {
     if (window.aistudio) {
       const hasKey = await window.aistudio.hasSelectedApiKey();
       setHasApiKey(hasKey);
+    } else {
+      // Production: API key is managed server-side
+      setHasApiKey(true);
     }
   };
 
