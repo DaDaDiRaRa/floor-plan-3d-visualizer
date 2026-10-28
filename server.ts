@@ -77,6 +77,37 @@ function getAI() {
   return new GoogleGenAI({ apiKey });
 }
 
+// llm_usage — 형제 앱(Python)의 llm_usage.py 와 같은 레코드 한 줄. Cloud Run 이면 Cloud Logging 에 남는다.
+// 토큰은 usageMetadata 에서, 만든 이미지 수는 inlineData 파트를 센다. 비용은 null(단가표 없음).
+// 기록 실패가 응답을 막으면 안 된다.
+function logGemini(model: string, response: unknown, purpose: string) {
+  try {
+    const r = response as {
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+      candidates?: { content?: { parts?: { inlineData?: unknown }[] } }[];
+    };
+    const images = (r.candidates ?? [])
+      .flatMap(c => c.content?.parts ?? [])
+      .filter(p => p.inlineData).length;
+    const rec = {
+      ts: new Date().toISOString(),
+      app: 'floor-plan-3d',
+      provider: 'google',
+      model,
+      input_tokens: r.usageMetadata?.promptTokenCount ?? null,
+      output_tokens: r.usageMetadata?.candidatesTokenCount ?? null,
+      cache_write_tokens: null,
+      cache_read_tokens: null,
+      cost_usd: null,
+      ...(images ? { units: { images } } : {}),
+      meta: { purpose },
+    };
+    console.log(`[llm_usage] ${JSON.stringify(rec)}`);
+  } catch {
+    // 기록은 덤이다
+  }
+}
+
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
@@ -140,6 +171,7 @@ app.post('/api/analyze', async (req, res) => {
         },
       })
     );
+    logGemini('gemini-2.5-pro', result, 'analyze');
 
     const text =
       result.text ||
@@ -190,6 +222,7 @@ ${prompt}
         },
       })
     );
+    logGemini('gemini-3.1-flash-image-preview', response, 'render');
 
     const parts = response.candidates?.[0]?.content?.parts ?? [];
     for (const part of parts) {
